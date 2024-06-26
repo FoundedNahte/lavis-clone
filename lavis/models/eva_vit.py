@@ -16,6 +16,8 @@ from timm.models.layers import drop_path, to_2tuple, trunc_normal_
 from timm.models.registry import register_model
 
 from lavis.common.dist_utils import download_cached_file
+from lavis.models.layers.nbitlineardynamic import NBitLinearDynamic
+from lavis.models.layers.bitlinear_158 import BitLinear
 
 def _cfg(url='', **kwargs):
     return {
@@ -64,7 +66,7 @@ class Mlp(nn.Module):
 class Attention(nn.Module):
     def __init__(
             self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0.,
-            proj_drop=0., window_size=None, attn_head_dim=None):
+            proj_drop=0., window_size=None, attn_head_dim=None, weight_bits=2, activation_bits=32):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -73,6 +75,8 @@ class Attention(nn.Module):
         all_head_dim = head_dim * self.num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
+        #self.qkv = NBitLinearDynamic(dim, all_head_dim * 3, bias=False, weight_bits=weight_bits, activation_bits=activation_bits)
+        #self.qkv = BitLinear(dim, all_head_dim * 3)
         self.qkv = nn.Linear(dim, all_head_dim * 3, bias=False)
         if qkv_bias:
             self.q_bias = nn.Parameter(torch.zeros(all_head_dim))
@@ -112,6 +116,8 @@ class Attention(nn.Module):
             self.relative_position_index = None
 
         self.attn_drop = nn.Dropout(attn_drop)
+        #self.proj = BitLinear(all_head_dim, dim)
+        #self.proj = NBitLinearDynamic(all_head_dim, dim, weight_bits=weight_bits, activation_bits=activation_bits)
         self.proj = nn.Linear(all_head_dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 

@@ -8,6 +8,9 @@ model:
   model_type: coco
   use_grad_checkpoint: False
 
+  w_bits: 8
+  a_bits: 32
+
 datasets:
   flickr30k: # name of the dataset builder
     vis_processor:

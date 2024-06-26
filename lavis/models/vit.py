@@ -21,6 +21,7 @@ from timm.models.helpers import named_apply, adapt_input_conv
 
 from fairscale.nn.checkpoint.checkpoint_activations import checkpoint_wrapper
 from lavis.models.base_model import BaseEncoder
+from lavis.models.layers.bitlinear_158 import BitLinear
 
 
 class Mlp(nn.Module):
@@ -66,9 +67,9 @@ class Attention(nn.Module):
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim**-0.5
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.BitLinear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
+        self.proj = nn.BitLinear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
         self.attn_gradients = None
         self.attention_map = None

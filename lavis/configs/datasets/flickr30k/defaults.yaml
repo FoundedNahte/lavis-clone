@@ -10,12 +10,6 @@ datasets:
 
     build_info:
       annotations:
-        train:
-          url: https://storage.googleapis.com/sfr-vision-language-research/datasets/flickr30k_train.json
-          storage: flickr30k/annotations/train.json
-        val:
-          url: https://storage.googleapis.com/sfr-vision-language-research/datasets/flickr30k_val.json
-          storage: flickr30k/annotations/val.json
         test:
           url: https://storage.googleapis.com/sfr-vision-language-research/datasets/flickr30k_test.json
           storage: flickr30k/annotations/test.json

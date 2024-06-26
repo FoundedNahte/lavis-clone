@@ -33,6 +33,8 @@ class RetrievalTask(BaseTask):
         # score_i2t, score_t2i = model.compute_sim_matrix(model, data_loader)
         score_i2t, score_t2i = model.compute_sim_matrix(data_loader, task_cfg=self.cfg)
 
+        print(model)
+
         if is_main_process():
             eval_result = self._report_metrics(
                 score_i2t,

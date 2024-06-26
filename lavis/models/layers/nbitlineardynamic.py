@@ -73,7 +73,7 @@ class NBitLinearDynamic(nn.Linear):
     def __init__(self,
                  *kargs,
                  weight_bits=8,
-                 activation_bits=8,
+                 activation_bits=32,
                  **kwargs
     ):
     
@@ -108,8 +108,9 @@ class NBitLinearDynamic(nn.Linear):
         w = self.weight
 
         # STE (Straight-through estimator) trick using detach, not really necessary for just PTQ inference
-        x_quant = x + (quant(x, self.activation_bits) - x).detach()
+        #x_quant = x + (quant(x, self.activation_bits) - x).detach()
+        x_quant = x
         w_quant = w + (quant(w, self.weight_bits) - w).detach()
-        y = F.linear(x_quant, w_quant)
+        y = F.linear(x_quant, w_quant.cuda())
         
         return y

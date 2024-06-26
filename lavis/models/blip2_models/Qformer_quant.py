@@ -44,7 +44,7 @@ from transformers.modeling_utils import (
 )
 from transformers.utils import logging
 from transformers.models.bert.configuration_bert import BertConfig
-from lavis.layer.nbitlineardynamic import NBitLinearDynamic
+from lavis.models.layers.nbitlineardynamic import NBitLinearDynamic
 
 logger = logging.get_logger(__name__)
 
@@ -110,9 +110,10 @@ class BertEmbeddings(nn.Module):
 
 
 class BertSelfAttention(nn.Module):
-    def __init__(self, config, is_cross_attention, weight_bits=8, activation_bits=8):
+    def __init__(self, config, is_cross_attention, weight_bits=8, activation_bits=32):
         super().__init__()
         self.config = config
+        self.quant_cached = False
         if config.hidden_size % config.num_attention_heads != 0 and not hasattr(
             config, "embedding_size"
         ):
@@ -125,13 +126,17 @@ class BertSelfAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.NBitLinearDynamic(config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+        self.quant_query = None
+        self.quant_key = None
+        self.quant_value = None
+
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
         if is_cross_attention:
-            self.key = nn.NBitLinearDynamic(config.encoder_width, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
-            self.value = nn.NBitLinearDynamic(config.encoder_width, self.all_head_size), weight_bits=weight_bits, activation_bits=activation_bits
+            self.key = nn.Linear(config.encoder_width, self.all_head_size)
+            self.value = nn.Linear(config.encoder_width, self.all_head_size)
         else:
-            self.key = nn.NBitLinearDynamic(config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
-            self.value = nn.NBitLinearDynamic(config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+            self.key = nn.Linear(config.hidden_size, self.all_head_size)
+            self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.position_embedding_type = getattr(
@@ -176,27 +181,72 @@ class BertSelfAttention(nn.Module):
         encoder_attention_mask=None,
         past_key_value=None,
         output_attentions=False,
+        quant=False,
     ):
-
         # If this is instantiated as a cross-attention module, the keys
         # and values come from an encoder; the attention mask needs to be
         # such that the encoder's padding tokens are not attended to.
         is_cross_attention = encoder_hidden_states is not None
 
+        # As far as I can tell, encoder_hidden_states is only used for image_embeds
+        # If this is the case, then if it's not None, we're in the image transformer submodule
+        if quant and not self.quant_cached:
+            self.quant_cached = True
+            weight_bits = 8
+            activation_bits = 32
+
+            query_weight = self.query.weight
+            query_bias = self.query.bias
+            key_weight = self.key.weight
+            key_bias = self.key.bias
+            value_weight = self.value.weight
+            value_bias = self.value.bias
+
+            self.quant_query = NBitLinearDynamic(self.config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+
+            if is_cross_attention:
+                self.quant_key = NBitLinearDynamic(self.config.encoder_width, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+                self.quant_value = NBitLinearDynamic(self.config.encoder_width, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+            else:
+                self.quant_key = NBitLinearDynamic(self.config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+                self.quant_value = NBitLinearDynamic(self.config.hidden_size, self.all_head_size, weight_bits=weight_bits, activation_bits=activation_bits)
+
+            self.quant_query.weight.copy_(query_weight)
+            self.quant_query.bias.copy_(query_bias)
+            self.quant_key.weight.copy_(key_weight)
+            self.quant_key.bias.copy_(key_bias)
+            self.quant_value.weight.copy_(value_weight)
+            self.quant_value.bias.copy_(value_bias)
+
         if is_cross_attention:
-            key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
-            value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
+            if not quant:
+                key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
+                value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
+            else:
+                key_layer = self.transpose_for_scores(self.quant_key(encoder_hidden_states))
+                value_layer = self.transpose_for_scores(self.quant_value(encoder_hidden_states))
             attention_mask = encoder_attention_mask
         elif past_key_value is not None:
-            key_layer = self.transpose_for_scores(self.key(hidden_states))
-            value_layer = self.transpose_for_scores(self.value(hidden_states))
+            if not quant:
+                key_layer = self.transpose_for_scores(self.key(hidden_states))
+                value_layer = self.transpose_for_scores(self.value(hidden_states))
+            else:
+                key_layer = self.transpose_for_scores(self.quant_key(hidden_states))
+                value_layer = self.transpose_for_scores(self.quant_value(hidden_states))
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
             value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
         else:
-            key_layer = self.transpose_for_scores(self.key(hidden_states))
-            value_layer = self.transpose_for_scores(self.value(hidden_states))
+            if not quant:
+                key_layer = self.transpose_for_scores(self.key(hidden_states))
+                value_layer = self.transpose_for_scores(self.value(hidden_states))
+            else:
+                key_layer = self.transpose_for_scores(self.quant_key(hidden_states))
+                value_layer = self.transpose_for_scores(self.value(hidden_states))
 
-        mixed_query_layer = self.query(hidden_states)
+        if not quant:
+            mixed_query_layer = self.query(hidden_states)
+        else:
+            mixed_query_layer = self.quant_query(hidden_states)
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
 
@@ -329,6 +379,7 @@ class BertAttention(nn.Module):
         encoder_attention_mask=None,
         past_key_value=None,
         output_attentions=False,
+        quant=False
     ):
         self_outputs = self.self(
             hidden_states,
@@ -338,6 +389,7 @@ class BertAttention(nn.Module):
             encoder_attention_mask,
             past_key_value,
             output_attentions,
+            quant=quant
         )
         attention_output = self.output(self_outputs[0], hidden_states)
 
@@ -411,6 +463,7 @@ class BertLayer(nn.Module):
         output_attentions=False,
         query_length=0,
     ):
+        quant = False if encoder_hidden_states is not None else True
         # decoder uni-directional self-attention cached key/values tuple is at positions 1,2
         self_attn_past_key_value = (
             past_key_value[:2] if past_key_value is not None else None
@@ -421,6 +474,7 @@ class BertLayer(nn.Module):
             head_mask,
             output_attentions=output_attentions,
             past_key_value=self_attn_past_key_value,
+            quant=quant,
         )
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:-1]
@@ -441,6 +495,7 @@ class BertLayer(nn.Module):
                     encoder_hidden_states,
                     encoder_attention_mask,
                     output_attentions=output_attentions,
+                    quant=quant,
                 )
                 query_attention_output = cross_attention_outputs[0]
                 outputs = (

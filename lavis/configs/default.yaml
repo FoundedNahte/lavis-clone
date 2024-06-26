@@ -8,4 +8,4 @@ env:
   # cache_root: "cache"
   # For internal use with persistent storage
   # NOTE: @vla changed this
-  cache_root: "/fs/nexus-scratch/vla/.cache"
+  cache_root: "/fs/vulcan-scratch/elau1/.cache"

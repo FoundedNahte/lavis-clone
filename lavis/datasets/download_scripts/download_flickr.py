@@ -72,16 +72,16 @@ if __name__ == "__main__":
 
     try:
         print("Downloading {} to {}".format(DATA_URL, download_dir))
-        od.download(DATA_URL, download_dir)
+        #od.download(DATA_URL, download_dir)
     except Exception as e:
         print(e)
         # remove download dir if failed
         cleanup_dir(download_dir)
         exit(1)
 
-    move_directory(
-        download_dir / "flickr-image-dataset" / "flickr30k_images" / "flickr30k_images",
-        storage_dir / "flickr30k-images",
-    )
+    #move_directory(
+        #download_dir / "flickr-image-dataset" / "flickr30k_images" / "flickr30k_images",
+        #storage_dir / "flickr30k-images",
+    #)
 
     cleanup_dir(download_dir)

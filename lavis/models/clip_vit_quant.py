@@ -11,7 +11,8 @@ from fairscale.nn.checkpoint.checkpoint_activations import checkpoint_wrapper
 
 from lavis.models.eva_vit import convert_weights_to_fp16
 from lavis.common.dist_utils import download_cached_file
-from lavis.layer.nbitlineardynamic import NBitLinearDynamic 
+from lavis.models.layers.nbitlineardynamic import NBitLinearDynamic 
+from lavis.models.layers.bitlinear_158 import BitLinear
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -120,17 +121,18 @@ class NBitAttention(nn.Module):
         qk_scale=None,
         attn_drop=0.0,
         proj_drop=0.0,
-        weight_bits=8,
-        activation_bits=8
+        weight_bits=4,
+        activation_bits=32
     ):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim**-0.5
-        self.qkv = nn.NBitLinearDynamic(dim, dim * 3, bias=qkv_bias, weight_bits=weight_bits, activation_bits=activation_bits)
+        #self.qkv = NBitLinearDynamic(dim, dim * 3, bias=qkv_bias, weight_bits=weight_bits, activation_bits=activation_bits)
+        self.qkv = BitLinear(dim, dim*3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.NBitLinearDynamic(dim, dim, weight_bits=weight_bits, activation_bits=activation_bits)
+        self.proj = BitLinear(dim, dim*3, bias=qkv_bias)
         self.proj_drop = nn.Dropout(proj_drop)
         self.attn_gradients = None
         self.attention_map = None
@@ -302,7 +304,7 @@ def interpolate_pos_embed(model, state_dict, interpolation: str = 'bicubic', seq
     state_dict['positional_embedding'] = new_pos_embed
     
     
-def create_clip_vit_L(img_size=224,use_checkpoint=False,precision="fp16"):
+def create_clip_vit_L_quant(img_size=224,use_checkpoint=False,precision="fp16"):
     model = VisionTransformer(
             input_resolution=img_size,
             patch_size=14,
